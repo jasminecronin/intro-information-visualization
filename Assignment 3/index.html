@@ -1,0 +1,283 @@
+<!--Code used as reference for tooltip hovers:
+http://bl.ocks.org/d3noob/a22c42db65eb00d4e369-->
+
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+    body {
+        width: 940px;
+        margin: 0 auto;
+        margin-top: 2em;
+    }
+
+    svg {
+        font: 10px sans-serif;
+    }
+
+    .axis path,
+    .axis line {
+        fill: none;
+        stroke: black;
+        shape-rendering: crispEdges;
+    }
+
+    /*Styling for tooltip hovers*/
+    div.tooltip {
+        position: absolute;
+        text-align: center;
+        width: 200px;
+        height: 42px;
+        padding: 2px;
+        font: 12px sans-serif;
+        background: lightsteelblue;
+        border: 0px;
+        border-radius: 8px;
+        pointer-events: none;
+    }
+</style>
+<body>
+<script src="http://d3js.org/d3.v4.min.js"></script>
+<script src="http://d3js.org/queue.v1.min.js"></script>
+<script src="http://d3js.org/topojson.v1.min.js"></script>
+<script>
+    /**
+     * copied from the following resources:
+     * http://bl.ocks.org/micahstubbs/281d7b7a7e39a9b59cf80f1b8bd41a72
+     * http://bl.ocks.org/msbarry/9911363
+     * http://bl.ocks.org/weiglemc/6185069
+     *
+    **/
+
+	const margin = {top: 0, right: 0, bottom: 0, left: 0};
+	const width = 960 - margin.left - margin.right;
+	const height = 1000 - margin.top - margin.bottom;
+
+	const color = d3.scaleThreshold()
+			.domain([0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ])
+			.range(['rgb(247,251,255)', 'rgb(222,235,247)', 'rgb(198,219,239)', 'rgb(158,202,225)', 'rgb(107,174,214)', 
+                'rgb(66,146,198)', 'rgb(33,113,181)', 'rgb(8,81,156)', 'rgb(8,48,107)', 'rgb(3,19,43)']);
+
+	const svg = d3.select('body')
+			.append('svg')
+			.attr('width', width)
+			.attr('height', height);
+
+    // Define the div for the tooltip
+    const div = d3.select("body").append("div")
+        .attr("class", "tooltip")
+        .style("opacity", 0);
+
+    const map = svg
+        .append('g')
+        .attr('class', 'map');
+
+    const scatterplot = svg
+        .append('g')
+        .attr('class', 'scatterplot')
+        .attr("transform", "translate(100,500)");
+
+    const projection = d3.geoMercator()
+			.scale(130)
+			.translate( [width / 2, height / 1.5/2]);
+
+	const path = d3.geoPath().projection(projection);
+
+	queue()
+			.defer(d3.json, 'world_countries.json')
+            .defer(d3.tsv, 'world_population.tsv')
+            .defer(d3.csv, 'who.csv')
+			.await(ready);
+
+	function ready(error, data, population, who) {
+		const fertilityById = {};
+		// dictionaries to hold data for tooltips
+        const femaleLEById={};
+        const maleLEById={};
+
+        population.forEach(d =>
+        {
+            var res = who.find(e =>
+            {
+                return e.Country == d.name;
+            });
+            if(typeof res !== 'undefined') {
+                res.id = d.id;
+            }
+        });
+
+        who.forEach(d => { fertilityById[d.id] = +d['Total fertility rate (per woman)']; });
+        data.features.forEach(d => { d.population = fertilityById[d.id] });
+
+        // populate dictionaries for tooltips
+        who.forEach(d => { femaleLEById[d.id] = +d['Life expectancy at birth (years) female']; });
+        who.forEach(d => { maleLEById[d.id] = +d['Life expectancy at birth (years) male']; });
+
+        svg.append('g')
+				.attr('class', 'countries')
+				.selectAll('path')
+				.data(data.features)
+				.enter().append('path')
+                .attr("class", d => { return "COUNTRY-CODE-"+d.id;} )
+				.attr('d', path)
+                .attr("isSelected", false)
+				.style('fill', d => color(fertilityById[d.id]))
+				.style('stroke', 'white')
+				.style('opacity', 0.8)
+				.style('stroke-width', 0.3)
+				.on('mouseover',function(d){
+                    div.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    // Set text for tooltip
+                    div.html(d.properties.name + "<br/>" + "Male life expectancy: " + maleLEById[d.id]
+                                + "<br/>" + "Female life expectancy: " + femaleLEById[d.id])
+                        .style("left", (d3.event.pageX) + "px")
+                        .style("top", (d3.event.pageY - 42) + "px");
+                })
+				.on('mouseout', function(d){
+                    div.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+				});
+
+		svg.append('path')
+				.datum(topojson.mesh(data.features, (a, b) => a.id !== b.id))
+				.attr('class', 'names')
+				.attr('d', path);
+
+        // setup x
+        var xValue = function(d) { return d["Life expectancy at birth (years) female"];}, // data -> value
+            xScale = d3.scaleLinear().range([0, height/2-100]), // value -> display
+            xMap = function(d) { return xScale(xValue(d));}, // data -> display
+            xAxis = d3.axisBottom().scale(xScale);
+
+        // setup y
+        var yValue = function(d) { return d["Life expectancy at birth (years) male"];}, // data -> value
+            yScale = d3.scaleLinear().range([height/2-100, 0]), // value -> display
+            yMap = function(d) { return yScale(yValue(d));}, // data -> display
+            yAxis = d3.axisLeft().scale(yScale);
+
+        // don't want dots overlapping axis, so add in buffer to data domain
+        xScale.domain([35, 90]);
+        yScale.domain([35, 90]);
+
+        // x-axis
+        scatterplot.append("g")
+            .attr("class", "x axis")
+            .attr("transform", "translate(0," + (height/2-100) + ")")
+            .call(xAxis)
+            .append("text")
+            .attr("class", "label")
+            .attr("x", 400)
+            .attr("y", -6)
+            .attr("fill", "black")
+            .style("text-anchor", "end")
+            .text("Life expectancy at birth (years) female");
+
+        // y-axis
+        scatterplot.append("g")
+            .attr("class", "y axis")
+            .call(yAxis)
+            .append("text")
+            .attr("class", "label")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 6)
+            .attr("dy", ".71em")
+            .attr("fill", "black")
+            .style("text-anchor", "end")
+            .text("Life expectancy at birth (years) male");
+
+        // draw dots
+        scatterplot.selectAll(".dot")
+            .data(who)
+            .enter().append("circle")
+            .attr("class", d => { return "dot COUNTRY-"+d.Country; } )
+            .attr("r", 3.5)
+            .attr("cx", xMap)
+            .attr("cy", yMap)
+            .attr("isSelected", false) // Mark dot as unselected
+            .style("fill", function(d) { return color(fertilityById[d.id]);})
+            .on("mouseover", function(d) {
+                div.transition()
+                    .duration(200)
+                    .style("opacity", .9);
+                // Set text for tooltip
+                div	.html(d.Country + "<br/>" + "Male life expectancy: " + d["Life expectancy at birth (years) male"] + "<br/>"
+                    + "Female life expectancy: " + d["Life expectancy at birth (years) female"])
+                    .style("left", (d3.event.pageX) + "px")
+                    .style("top", (d3.event.pageY - 42) + "px");
+                // Mark dot and corresponding country red on hover
+                d3.select(this).style("fill", "red");
+                d3.select(".COUNTRY-CODE-" + d.id).style("fill","red");
+            })
+            .on("mouseout", function(d) {
+                div.transition()
+                    .duration(500)
+                    .style("opacity", 0);
+                // Only change color on mouseout if circle is not currently selected
+                if (d3.select(this).attr("isSelected") === "false") {
+                    d3.select(this).style("fill", function(d) { return color(fertilityById[d.id]);});
+                    d3.select(".COUNTRY-CODE-" + d.id).style("fill", function(d) { return color(fertilityById[d.id]);});
+                }
+            })
+            .on("click", function(d){
+                // If clicked node is not currently selected
+                if (d3.select(this).attr("isSelected") === "false") {
+                    console.log(d.Country + " is currently selected, updating map.");
+                    d3.select(this)
+                        .attr("isSelected", true)
+                        .style("fill", "red"); // Color it red
+
+                    // Color the corresponding country red
+                    d3.select(".COUNTRY-CODE-" + d.id).style("fill","red");
+
+                    // Set up coordinates for drawing a line
+                    let x1 = parseFloat(d3.select(this).attr("cx")) + 100;
+                    let y1 = parseFloat(d3.select(this).attr("cy")) + 500;
+                    let x2 = d3.select(".COUNTRY-CODE-" + d.id).node().getBBox().x + d3.select(".COUNTRY-CODE-" + d.id).node().getBBox().width/2;
+                    let y2 = d3.select(".COUNTRY-CODE-" + d.id).node().getBBox().y + d3.select(".COUNTRY-CODE-" + d.id).node().getBBox().height/2;
+
+                    // Draw line
+                    var line = d3.select("svg").append("line")
+                        .attr("id", "line" + d.id)
+                        .attr("x1", x1)
+                        .attr("y1", y1)
+                        .attr("x2", x2)
+                        .attr("y2", y2)
+                        .attr("stroke", "red");
+                } else {
+                    console.log("Deselecting " + d.Country + ", updating map.");
+                    d3.select(this).attr("isSelected", false);
+                    // Reset color
+                    d3.select(".COUNTRY-CODE-" + d.id).style("fill", function(d) { return color(fertilityById[d.id]);});
+                    // Delete line
+                    document.getElementById("line"+ d.id).remove();
+                }
+            });
+
+        // draw legend
+        var legend = scatterplot.selectAll(".legend")
+            .data(color.domain())
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function(d, i) { return "translate(-300," + i * 20 + ")"; });
+
+        // draw legend colored rectangles
+        legend.append("rect")
+            .attr("x", width - 18)
+            .attr("width", 18)
+            .attr("height", 18)
+            .style("fill", color);
+
+        // draw legend text
+        legend.append("text")
+            .attr("x", width - 24)
+            .attr("y", 9)
+            .attr("dy", ".35em")
+            .style("text-anchor", "end")
+            .text(function(d) { return d;})
+    };
+
+</script>
+</body>
+</html>
