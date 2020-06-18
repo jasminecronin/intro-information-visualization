@@ -4,4 +4,4 @@ Coursework for the University of Calgary. Assignments involved producing a dashb
 
 ## Group Project
 
-We worked in a group of 4 to produce a large and interactive visualization around video game sales data. The project can be viewed here: 
+We worked in a group of 4 to produce a large and interactive visualization around video game sales data. The project can be viewed here: https://git.io/v-sales.
